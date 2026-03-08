@@ -1,2 +1,4 @@
-# app.py
-winter meteo
+streamlit
+requests
+pandas
+plotly
