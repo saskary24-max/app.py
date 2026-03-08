@@ -1,0 +1,124 @@
+import streamlit as st
+import math
+import pandas as pd
+from datetime import datetime
+
+# ==========================================
+# 1. إعدادات الصفحة والتصميم
+# ==========================================
+st.set_page_config(page_title="Pro Bet Analyzer + History", page_icon="📈", layout="wide")
+
+st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
+    html, body, [class*="css"]  {
+        font-family: 'Cairo', sans-serif;
+        text-align: right;
+        direction: rtl;
+    }
+    .main-card {
+        background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+        color: white;
+        padding: 2rem;
+        border-radius: 15px;
+        margin-bottom: 2rem;
+    }
+    .stButton>button {
+        width: 100%;
+        border-radius: 10px;
+        height: 3em;
+        background-color: #2563eb;
+        color: white;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# ==========================================
+# 2. إدارة البيانات (Session State)
+# ==========================================
+if 'history' not in st.session_state:
+    st.session_state.history = []
+
+def poisson_probability(lmbda, x):
+    return (math.exp(-lmbda) * (lmbda**x)) / math.factorial(x)
+
+# ==========================================
+# 3. واجهة المستخدم
+# ==========================================
+st.markdown('<div class="main-card"><h1>📈 المحلل الرياضي مع سجل البيانات</h1><p>حلل، راهن، وتتبع أداءك في مكان واحد.</p></div>', unsafe_allow_html=True)
+
+tab1, tab2 = st.tabs(["🔍 تحليل مباراة جديدة", "📜 سجل التوقعات"])
+
+with tab1:
+    col_config1, col_config2 = st.columns(2)
+    with col_config1:
+        bankroll = st.number_input("إجمالي رأس المال (DH)", value=1000)
+    with col_config2:
+        kelly_frac = st.slider("معامل كيلي (المخاطرة)", 0.1, 1.0, 0.5)
+
+    st.divider()
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        h_name = st.text_input("المستضيف", "اتحاد تواركة")
+        h_att = st.number_input("هجوم المستضيف", value=0.9)
+    with col2:
+        a_name = st.text_input("الضيف", "الوداد الرياضي")
+        a_att = st.number_input("هجوم الضيف", value=1.8)
+    with col3:
+        odd_1 = st.number_input("Odd 1", value=4.10)
+        odd_x = st.number_input("Odd X", value=3.25)
+        odd_2 = st.number_input("Odd 2", value=1.95)
+
+    if st.button("تحليل وحفظ في السجل"):
+        # حسابات مبسطة للمثال
+        exp_h, exp_a = 1.1, 1.6 # قيم افتراضية للتوضيح
+        p_h = 0.25; p_x = 0.30; p_a = 0.45 # قيم افتراضية
+        
+        # تحديد الهمزة (Value Selection)
+        best_ev = -1
+        best_pick = ""
+        best_odd = 0
+        
+        for label, prob, odd in [("1", p_h, odd_1), ("X", p_x, odd_x), ("2", p_a, odd_2)]:
+            ev = (prob * odd) - 1
+            if ev > best_ev:
+                best_ev = ev
+                best_pick = label
+                best_odd = odd
+
+        # إضافة للسجل
+        new_entry = {
+            "التاريخ": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "المباراة": f"{h_name} vs {a_name}",
+            "التوقع": best_pick,
+            "الاحتمال": f"{max(p_h, p_x, p_a)*100:.1f}%",
+            "الأودز": best_odd,
+            "القيمة (EV)": round(best_ev, 2)
+        }
+        st.session_state.history.append(new_entry)
+        st.success("تم التحليل وحفظ البيانات في السجل!")
+
+
+
+with tab2:
+    if st.session_state.history:
+        df = pd.DataFrame(st.session_state.history)
+        st.dataframe(df, use_container_width=True)
+        
+        # خيار تحميل البيانات
+        csv = df.to_csv(index=False).encode('utf-8-sig')
+        st.download_button(
+            label="📥 تحميل السجل كملف Excel/CSV",
+            data=csv,
+            file_name='betting_history.csv',
+            mime='text/csv',
+        )
+        
+        if st.button("🗑️ مسح السجل"):
+            st.session_state.history = []
+            st.rerun()
+    else:
+        st.info("السجل فارغ حالياً. قم بتحليل مباراة أولاً.")
+
+st.markdown('<p style="text-align: center; font-size: 0.8em; color: gray; margin-top: 50px;">تم التطوير بواسطة Gemini AI 2026</p>', unsafe_allow_html=True)
