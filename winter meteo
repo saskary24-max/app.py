@@ -1,0 +1,138 @@
+import streamlit as st
+import requests
+import pandas as pd
+import plotly.graph_objects as go
+from datetime import datetime
+from typing import Dict, List, Tuple
+
+# ============================================================================
+# إعدادات الصفحة
+# ============================================================================
+st.set_page_config(
+    page_title="🌤️ لوحة بيانات الطقس",
+    page_icon="🌤️",
+    layout="wide"
+)
+
+# تحسين المظهر ودعم العربية (RTL)
+st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
+    html, body, [class*="css"]  {
+        font-family: 'Cairo', sans-serif;
+        direction: rtl;
+        text-align: right;
+    }
+    .metric-card {
+        background-color: #f0f2f6;
+        padding: 20px;
+        border-radius: 10px;
+        text-align: center;
+    }
+    .alert-warning {
+        background-color: #fff3cd;
+        padding: 15px;
+        border-radius: 5px;
+        border-right: 5px solid #ffc107;
+        margin-bottom: 10px;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# ============================================================================
+# الدوال التقنية (APIs)
+# ============================================================================
+def wmo_to_arabic(code: int) -> str:
+    """تحويل رموز الطقس إلى وصف بالعربية"""
+    wmo_codes = {
+        0: "سماء صافية", 1: "صافٍ غالباً", 2: "غائم جزئياً", 3: "غائم بالكامل",
+        45: "ضباب", 48: "ضباب صقيعي", 51: "رذاذ خفيف", 53: "رذاذ متوسط",
+        55: "رذاذ كثيف", 61: "مطر خفيف", 63: "مطر متوسط", 65: "مطر غزير",
+        95: "عاصفة رعدية", 99: "عاصفة رعدية مع برد"
+    }
+    return wmo_codes.get(code, "غير معروف")
+
+@st.cache_data(ttl=600)
+def fetch_weather(lat, lon):
+    url = "https://api.open-meteo.com/v1/forecast"
+    params = {
+        "latitude": lat, "longitude": lon,
+        "current": "temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m",
+        "hourly": "temperature_2m,relative_humidity_2m,precipitation_probability",
+        "daily": "weather_code,temperature_2m_max,temperature_2m_min",
+        "timezone": "auto"
+    }
+    return requests.get(url, params=params).json()
+
+@st.cache_data(ttl=3600)
+def get_coords(city):
+    url = f"https://geocoding-api.open-meteo.com/v1/search?name={city}&count=1&language=ar"
+    res = requests.get(url).json()
+    if res.get("results"):
+        return res["results"][0]["latitude"], res["results"][0]["longitude"], res["results"][0]["name"]
+    return None, None, None
+
+# ============================================================================
+# التطبيق الرئيسي
+# ============================================================================
+def main():
+    st.title("🌤️ لوحة بيانات الطقس الذكية")
+    
+    with st.sidebar:
+        st.header("⚙️ الإعدادات")
+        city_input = st.text_input("أدخل اسم المدينة:", value="الدار البيضاء")
+        lat, lon, full_name = get_coords(city_input)
+        
+        st.divider()
+        unit = st.radio("وحدة قياس الحرارة:", ["درجة مئوية (°C)", "فهرنهايت (°F)"])
+        hours = st.slider("ساعات التوقعات:", 12, 48, 24)
+
+    if lat:
+        data = fetch_weather(lat, lon)
+        current = data["current"]
+        
+        st.success(f"📍 الموقع الحالي: {full_name}")
+
+        # عرض المؤشرات الرئيسية
+        col1, col2, col3 = st.columns(3)
+        temp = current["temperature_2m"]
+        if "فهرنهايت" in unit: temp = (temp * 9/5) + 32
+
+        col1.metric("🌡️ درجة الحرارة", f"{temp:.1f}°")
+        col2.metric("💧 الرطوبة", f"{current['relative_humidity_2m']}%")
+        col3.metric("💨 سرعة الرياح", f"{current['wind_speed_10m']} كم/س")
+
+        # التنبيهات
+        if temp > 35:
+            st.markdown(f"<div class='alert-warning'>🔥 تنبيه: موجة حر شديدة في {full_name}</div>", unsafe_allow_html=True)
+        
+        # الرسوم البيانية
+        st.divider()
+        st.subheader("📈 توقعات الساعات القادمة")
+        
+        hourly_df = pd.DataFrame({
+            "الوقت": pd.to_datetime(data["hourly"]["time"][:hours]),
+            "الحرارة": data["hourly"]["temperature_2m"][:hours]
+        })
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=hourly_df["الوقت"], y=hourly_df["الحرارة"], mode='lines+markers', name='الحرارة'))
+        fig.update_layout(title="تغير درجات الحرارة", template="plotly_white")
+        st.plotly_chart(fig, use_container_width=True)
+
+        # توقعات الأيام القادمة
+        st.divider()
+        st.subheader("📅 توقعات الأيام القادمة")
+        daily_cols = st.columns(5)
+        for i in range(5):
+            with daily_cols[i]:
+                day = data["daily"]["time"][i]
+                t_max = data["daily"]["temperature_2m_max"][i]
+                desc = wmo_to_arabic(data["daily"]["weather_code"][i])
+                st.markdown(f"**{day}**\n\n**{t_max}°**\n\n{desc}")
+
+    else:
+        st.error("لم يتم العثور على المدينة. يرجى التأكد من الاسم.")
+
+if __name__ == "__main__":
+    main()
